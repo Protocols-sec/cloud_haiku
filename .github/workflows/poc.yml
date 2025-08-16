@@ -1,0 +1,18 @@
+# .github/workflows/safe-poc.yml
+name: SAFE PoC – pull_request_target risk demo
+
+on:
+  pull_request_target:
+    branches: [ main ]
+
+jobs:
+  demo:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR code (dangerous in real life)
+        uses: actions/checkout@v3
+
+      - name: Simulate secret access
+        run: |
+          echo "If a secret existed, attacker PR code would see it."
+          echo "Example secret value: ${{ secrets.DUMMY_SECRET || 'no-secret-set' }}"
