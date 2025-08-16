@@ -1,0 +1,20 @@
+# .github/workflows/poc.yml
+name: PR tests (PoC – Secret Exposure)
+
+on:
+  pull_request_target:
+    branches: [ main ]
+
+jobs:
+  poc:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR code (unsafe in real life)
+        uses: actions/checkout@v3
+
+      - name: Show environment and fake secret exfiltration
+        run: |
+          echo "===== ENVIRONMENT ====="
+          env | sort
+          echo "===== SIMULATED SECRET ====="
+          echo "DUMMY_SECRET=${{ secrets.DUMMY_SECRET || 'no secret set' }}"
